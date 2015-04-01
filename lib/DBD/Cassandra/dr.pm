@@ -24,14 +24,13 @@ sub connect {
         $attr->{$attr_name}= $attr_val;
     }
 
-    my $keyspace= delete $attr->{cass_database} || delete $attr->{cass_db} || delete $attr->{cass_keyspace}
-        or return $drh->set_err($DBI::stderr, "Could not determine keyspace from DSN '$dr_dsn'");
+    my $keyspace= delete $attr->{cass_database} || delete $attr->{cass_db} || delete $attr->{cass_keyspace};
     my $host= delete $attr->{cass_host} || 'localhost';
     my $port= delete $attr->{cass_port} || 9042;
 
     my $connection;
     eval {
-        $connection= cass_connect($host, $port, $keyspace, $user, $auth);
+        $connection= cass_connect($host, $port, $user, $auth);
         1;
     } or do {
         my $err= $@ || "unknown error";
@@ -43,13 +42,13 @@ sub connect {
     $dbh->STORE('Active', 1);
     $dbh->{cass_connection}= $connection;
 
-    $outer->do("use $keyspace");
+    $outer->do("use $keyspace") if $keyspace;
 
     return $outer;
 }
 
 sub cass_connect {
-    my ($host, $port, $keyspace, $user, $auth)= @_;
+    my ($host, $port, $user, $auth)= @_;
     my $socket= IO::Socket::INET->new(
         PeerAddr => $host,
         PeerPort => $port,
@@ -58,15 +57,12 @@ sub cass_connect {
 
     {
         my $body= pack_string_map({ CQL_VERSION => '3.0.0' });
-        send_frame( $socket, 2, 0, 1, OPCODE_STARTUP, $body ) or die "Could not send STARTUP: $!";
+        send_frame2( $socket, 0, 1, OPCODE_STARTUP, $body )
+            or die "Could not send STARTUP: $!";
     }
 
     {
-        my ($version, $flags, $streamid, $opcode, $body)= recv_frame($socket);
-        if ($version != (2 | 0x80)) {
-            die "Unknown CQLSH version sent by server";
-        }
-
+        my ($flags, $streamid, $opcode, $body)= recv_frame2($socket);
         if ($streamid != 1) {
             die "Server replied with a wrong StreamID";
         }

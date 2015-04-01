@@ -19,6 +19,5 @@ no_index:
     - inc
 requires:
   DBI: '1.621'
-  Protocol::CassandraCQL: '0.12'
   perl: '5.014'
-version: '0.02'
+version: '0.03'

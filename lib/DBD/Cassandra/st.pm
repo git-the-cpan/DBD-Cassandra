@@ -3,7 +3,6 @@ use v5.14;
 use warnings;
 
 use DBD::Cassandra::Protocol qw/:all/;
-use DBD::Cassandra::Type qw/build_row_decoder/;
 
 # Documentation-driven cargocult
 $DBD::Cassandra::st::imp_data_size = 0;
@@ -27,8 +26,14 @@ sub execute {
     return $sth->set_err($DBI::stderr, "Wrong number of parameters")
         if @$params != $param_count;
 
-    my $data= _cass_execute($sth, $params);
-    return undef unless defined $data;
+    my $data;
+    eval {
+        $data= _cass_execute($sth, $params);
+        1;
+    } or do {
+        my $err= $@ || "unknown error";
+        return $sth->set_err($DBI::stderr, "error in execute: $err");
+    };
 
     $sth->{cass_data}= $data;
     $sth->{cass_rows}= 0+@$data;
@@ -48,19 +53,22 @@ sub _cass_execute {
     {
         my $values= pack('n', 0+@$params). ($sth->{cass_row_encoder}->(@$params));
         my $body= pack_shortbytes($prepared_id).pack_parameters({ values => $values });
-        send_frame( $fh, 2, 0, 1, OPCODE_EXECUTE, $body ) or die "Unable to execute statement: $!";
+        send_frame2( $fh, 0, 1, OPCODE_EXECUTE, $body )
+            or die "Unable to execute statement: $!";
     }
 
     my $result;
     {
-        my ($version, $flags, $streamid, $opcode, $body)= recv_frame($fh);
-        if ($streamid != 1 || $version != 130 || $flags != 0) { die "Strange answer from server."; }
+        my ($flags, $streamid, $opcode, $body)= recv_frame2($fh);
+        if ($streamid != 1 || $flags != 0) {
+            die "Strange answer from server.";
+        }
 
         if ($opcode == OPCODE_ERROR) {
             my ($code, $message)= unpack('Nn/a', $body);
-            return $sth->set_err($DBI::stderr, "Execute failed with code $code: $message");
+            die "Code $code: $message";
         } elsif ($opcode != OPCODE_RESULT) {
-            die "Strange answer from server.";
+            die "Strange answer from server during execute";
         }
 
         my $kind= unpack 'N', substr $body, 0, 4, '';
@@ -68,7 +76,7 @@ sub _cass_execute {
             $result= [];
         } elsif ($kind == RESULT_ROWS) {
             my $metadata= unpack_metadata($body);
-            my $decoder= build_row_decoder($metadata->{columns});
+            my $decoder= $sth->{cass_row_decoder};
             my $rows_count= unpack('N', substr $body, 0, 4, '');
 
             my @rows;

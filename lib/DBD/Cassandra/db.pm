@@ -3,7 +3,7 @@ use v5.14;
 use warnings;
 
 use DBD::Cassandra::Protocol qw/:all/;
-use DBD::Cassandra::Type qw/build_row_encoder/;
+use DBD::Cassandra::Type qw/build_row_encoder build_row_decoder/;
 
 # This cargocult comes straight from DBI::DBD docs. No idea what it does.
 $DBD::Cassandra::db::imp_data_size = 0;
@@ -13,13 +13,14 @@ sub prepare {
 
     {
         my $body= pack_longstring($statement);
-        send_frame( $dbh->{cass_connection}, 2, 0, 1, Protocol::CassandraCQL::OPCODE_PREPARE, $body ) or die "Failed to send frame: $!";
+        send_frame2( $dbh->{cass_connection}, 0, 1, OPCODE_PREPARE, $body )
+            or return $dbh->set_err($DBI::stderr, "Failed to send frame: $!");
     }
 
     my ($prepared_id, $metadata, $result_metadata, @names, $paramcount);
 
     {
-        my ($version, $flags, $streamid, $opcode, $body)= recv_frame($dbh->{cass_connection});
+        my ($flags, $streamid, $opcode, $body)= recv_frame2($dbh->{cass_connection});
         if ($opcode == OPCODE_ERROR) {
             my ($code, $message)= unpack('Nn/a', $body);
             return $dbh->set_err($DBI::stderr, "$code: $message");
@@ -51,7 +52,7 @@ sub prepare {
     $sth->{cass_prepared_result_metadata}= $result_metadata;
     $sth->{cass_prepared_id}= $prepared_id;
     $sth->{cass_row_encoder}= build_row_encoder($metadata->{columns});
-    #$sth->{cass_row_decoder}= build_row_decoder($result_metadata->{columns});
+    $sth->{cass_row_decoder}= build_row_decoder($result_metadata->{columns});
     return $outer;
 }
 
