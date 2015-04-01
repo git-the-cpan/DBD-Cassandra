@@ -21,4 +21,4 @@ requires:
   DBI: '1.621'
   Protocol::CassandraCQL: '0.12'
   perl: '5.014'
-version: '0.01'
+version: '0.02'
