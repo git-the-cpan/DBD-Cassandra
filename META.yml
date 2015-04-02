@@ -18,6 +18,8 @@ no_index:
     - t
     - inc
 requires:
+  Compress::LZ4: '0.20'
+  Compress::Snappy: '0.23'
   DBI: '1.621'
   perl: '5.014'
-version: '0.04'
+version: '0.05'

@@ -32,11 +32,13 @@
       },
       "runtime" : {
          "requires" : {
+            "Compress::LZ4" : "0.20",
+            "Compress::Snappy" : "0.23",
             "DBI" : "1.621",
             "perl" : "5.014"
          }
       }
    },
    "release_status" : "stable",
-   "version" : "0.04"
+   "version" : "0.05"
 }
