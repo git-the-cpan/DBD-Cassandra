@@ -3,7 +3,7 @@ MANIFEST			This list of files
 Makefile.PL
 README
 lib/DBD/Cassandra.pm
-lib/DBD/Cassandra/Frame.pm
+lib/DBD/Cassandra/Connection.pm
 lib/DBD/Cassandra/Protocol.pm
 lib/DBD/Cassandra/Type.pm
 lib/DBD/Cassandra/db.pm
@@ -11,6 +11,7 @@ lib/DBD/Cassandra/dr.pm
 lib/DBD/Cassandra/st.pm
 t/00-load.t
 t/01-connect.t
+t/05-compress.t
 t/10-crud.t
 t/manifest.t
 t/pod.t

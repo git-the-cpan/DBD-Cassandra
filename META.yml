@@ -20,4 +20,4 @@ no_index:
 requires:
   DBI: '1.621'
   perl: '5.014'
-version: '0.03'
+version: '0.04'

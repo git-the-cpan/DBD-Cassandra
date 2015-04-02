@@ -6,7 +6,7 @@ use DBD::Cassandra::dr;
 use DBD::Cassandra::db;
 use DBD::Cassandra::st;
 
-our $VERSION= '0.03';
+our $VERSION= '0.04';
 our $drh= undef;
 
 sub driver {
@@ -70,7 +70,9 @@ using the CQL3 query language.
 =over
 
 =item keyspace
+
 =item database
+
 =item db
 
 Optionally, a keyspace to use by default. If this is not specified,
@@ -83,6 +85,20 @@ Hostname to connect to. Defaults to C<localhost>
 =item port
 
 Port number to connect to. Defaults to C<3306>
+
+=item compression
+
+The compression method we should use for the connection. Currently
+Cassandra allows C<lz4> and C<snappy>. We default to C<lz4>, which can
+be disabled by setting C<compression=none>.
+
+Only used for data frames longer than 512 bytes.
+
+=item cql_version
+
+There are several versions of the CQL language and this option lets you
+pick one. Defaults to C<3.0.0>. Consult your Cassandra manual to see
+which versions your database supports.
 
 =back
 
@@ -103,7 +119,8 @@ Thread support is untested. Use at your own risk.
 
 =item *
 
-Not all of Cassandra's data types are currently supported. These are :
+Not all Cassandra data types are supported. These are currently
+supported:
 
 =over
 
