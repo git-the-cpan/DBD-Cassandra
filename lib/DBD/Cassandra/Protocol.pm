@@ -6,6 +6,7 @@ require Exporter;
 use Data::Dumper;
 
 our (@EXPORT_OK, %EXPORT_TAGS);
+my (%consistency_lookup);
 BEGIN {
     my %constants= (
         OPCODE_ERROR => 0,
@@ -30,14 +31,25 @@ BEGIN {
         RESULT_SET_KEYSPACE => 3,
         RESULT_PREPARED => 4,
         RESULT_SCHEMA_CHANGE => 5,
+
+        CONSISTENCY_ANY => 0,
+        CONSISTENCY_ONE => 1,
+        CONSISTENCY_TWO => 2,
+        CONSISTENCY_THREE => 3,
+        CONSISTENCY_QUORUM => 4,
+        CONSISTENCY_ALL => 5,
+        CONSISTENCY_LOCAL_QUORUM => 6,
+        CONSISTENCY_EACH_QUORUM => 7,
+        CONSISTENCY_SERIAL => 8,
+        CONSISTENCY_LOCAL_SERIAL => 9,
+        CONSISTENCY_ONE => 10,
     );
 
     @EXPORT_OK= (
         keys %constants,
         qw(
-            unpack_string_map
             pack_string_map
-            unpack_longstring
+            unpack_string_multimap
             pack_longstring
             unpack_shortbytes
             pack_shortbytes
@@ -57,14 +69,31 @@ BEGIN {
         all => [ @EXPORT_OK ]
     );
 
+    %consistency_lookup= map {
+        my $key= $_;
+        $key =~ s/CONSISTENCY_//;
+        (lc $key) => $constants{$_}
+    } keys %constants;
+
     constant->import( { %constants } );
 }
 
 our @ISA= qw(Exporter);
 
 
-sub unpack_string_map {
-    ...
+sub unpack_string_multimap {
+    my $result= {};
+    my $count= unpack('n', substr $_[0], 0, 2, '');
+    for (1..$count) {
+        my $key= unpack_string($_[0]);
+        my $valcount= unpack('n', substr $_[0], 0, 2, '');
+        my $values= [];
+        for (1..$valcount) {
+            push @$values, unpack_string($_[0]);
+        }
+        $result->{$key}= $values;
+    }
+    return $result;
 }
 
 sub pack_string_map {
@@ -78,7 +107,6 @@ sub pack_string_map {
     return pack('n', $count).$body;
 }
 
-sub unpack_longstring { unpack('N/a', shift) }
 sub pack_longstring { pack('N/a', shift) }
 
 sub unpack_shortbytes {
@@ -152,7 +180,15 @@ sub unpack_metadata {
 sub pack_parameters {
     my ($params)= @_;
 
-    my $consistency= delete $params->{consistency} || 1;
+    my $consistency= delete $params->{consistency};
+    if ($consistency !~ /\A[0-9]+\z/) {
+        if (defined(my $c= $consistency_lookup{lc $consistency})) {
+            $consistency= $c;
+        } else {
+            die "Unknown consistency argument: $consistency";
+        }
+    }
+
     my $flags= 0;
     if ($params->{values}) {
         $flags |= 0x01;

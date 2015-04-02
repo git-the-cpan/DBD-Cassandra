@@ -6,7 +6,7 @@ use DBD::Cassandra::dr;
 use DBD::Cassandra::db;
 use DBD::Cassandra::st;
 
-our $VERSION= '0.05';
+our $VERSION= '0.06';
 our $drh= undef;
 
 sub driver {
@@ -42,12 +42,17 @@ DBD::Cassandra - Database driver for Cassandra's CQL3
 
     use DBI;
 
-    my $dbh = DBI->connect("dbi:Cassandra:host=localhost;keyspace=test", $user, $password);
+    my $dbh = DBI->connect("dbi:Cassandra:host=localhost;keyspace=test", $user, $password, { RaiseError => 1 });
     my $rows = $dbh->selectall_arrayref("SELECT id, field_one, field_two FROM some_table");
 
     for my $row (@$rows) {
         # Do something with your row
     }
+
+    $dbh->do("INSERT INTO some_table (id, field_one, field_two) VALUES (?, ?, ?)",
+        { Consistency => "quorum" },
+        1, "String value", 38962986
+    );
 
     $dbh->disconnect;
 
@@ -84,25 +89,42 @@ Hostname to connect to. Defaults to C<localhost>
 
 =item port
 
-Port number to connect to. Defaults to C<3306>
+Port number to connect to. Defaults to C<9042>
 
 =item compression
 
 The compression method we should use for the connection. Currently
-Cassandra allows C<lz4> and C<snappy>. We default to C<lz4>, which can
+Cassandra allows C<lz4> and C<snappy>. Defaults to the algorithm with
+the best compression ratio, if the server supports it. Compression can
 be disabled by setting C<compression=none>.
 
-Only used for data frames longer than 512 bytes.
+Only used for data frames longer than 512 bytes, smaller frames get
+sent uncompressed.
 
 =item cql_version
 
 There are several versions of the CQL language and this option lets you
-pick one. Defaults to C<3.0.0>. Consult your Cassandra manual to see
-which versions your database supports.
+pick one. Defaults to the highest available version. Consult your
+Cassandra manual to see which versions your database supports.
 
 =back
 
 =back
+
+=head1 CONSISTENCY LEVELS
+
+    $dbh->do("INSERT INTO some_table (id, field_name) VALUES (?, ?)",
+        { Consistency => "quorum" },
+        @values
+    );
+
+B<DBD::Cassandra> accepts a I<Consistency> attribute for statements.
+Supported consistency levels are C<any>, C<one>, C<two>, C<three>,
+C<quorum>, C<all>, C<local_quorum>, C<each_quorum>, C<serial>,
+C<local_serial> and C<local_one>.
+
+This attribute is ignored on statements that do not support it, such
+as C<CREATE>.
 
 =head1 CAVEATS, BUGS, TODO
 
