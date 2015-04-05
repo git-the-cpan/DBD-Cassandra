@@ -6,7 +6,7 @@ use DBD::Cassandra::dr;
 use DBD::Cassandra::db;
 use DBD::Cassandra::st;
 
-our $VERSION= '0.06';
+our $VERSION= '0.07';
 our $drh= undef;
 
 sub driver {
@@ -71,6 +71,7 @@ using the CQL3 query language.
 
     $dsn = "dbi:Cassandra:database=$database";
     $dsn = "dbi:Cassandra:keyspace=$keyspace;host=$hostname;port=$port";
+    $dsn = "dbi:Cassandra:keyspace=$keyspace;consistency=local_quorum";
 
 =over
 
@@ -107,6 +108,8 @@ There are several versions of the CQL language and this option lets you
 pick one. Defaults to the highest available version. Consult your
 Cassandra manual to see which versions your database supports.
 
+=item consistency
+
 =back
 
 =back
@@ -126,6 +129,8 @@ C<local_serial> and C<local_one>.
 This attribute is ignored on statements that do not support it, such
 as C<CREATE>.
 
+A global consistency level can be defined as part of the DSN.
+
 =head1 CAVEATS, BUGS, TODO
 
 =over
@@ -138,6 +143,12 @@ if you try to use it.
 =item *
 
 Thread support is untested. Use at your own risk.
+
+=item *
+
+There is currently no support for asynchronous queries, and there are
+no plans to implement it. If you need to run a lot of queries in
+parallel, consider using C<fork> to manage the parallel work.
 
 =item *
 

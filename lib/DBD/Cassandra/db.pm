@@ -23,11 +23,7 @@ sub prepare {
         return $dbh->set_err($DBI::stderr, "prepare failed: $error");
     };
 
-    if ($opcode == OPCODE_ERROR) {
-        my ($code, $message)= unpack('Nn/a', $body);
-        return $dbh->set_err($DBI::stderr, "$code: $message");
-
-    } elsif ($opcode != OPCODE_RESULT) {
+    if ($opcode != OPCODE_RESULT) {
         return $dbh->set_err($DBI::stderr, "Unknown response from server");
     }
 
@@ -53,7 +49,7 @@ sub prepare {
     $sth->{cass_prepared_id}= $prepared_id;
     $sth->{cass_row_encoder}= build_row_encoder($metadata->{columns});
     $sth->{cass_row_decoder}= build_row_decoder($result_metadata->{columns});
-    $sth->{cass_consistency}= $attribs->{consistency} // $attribs->{Consistency} // CONSISTENCY_ONE;
+    $sth->{cass_consistency}= $attribs->{consistency} // $attribs->{Consistency} // $dbh->{cass_consistency} // 'one';
     return $outer;
 }
 

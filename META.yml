@@ -18,8 +18,9 @@ no_index:
     - t
     - inc
 requires:
+  Authen::SASL: '2.16'
   Compress::LZ4: '0.20'
   Compress::Snappy: '0.23'
   DBI: '1.621'
   perl: '5.014'
-version: '0.06'
+version: '0.07'
