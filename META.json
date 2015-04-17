@@ -41,5 +41,12 @@
       }
    },
    "release_status" : "stable",
-   "version" : "0.07"
+   "resources" : {
+      "repository" : {
+         "type" : "git",
+         "url" : "https://github.com/tvdw/perl-DBD-Cassandra.git",
+         "web" : "https://github.com/tvdw/perl-DBD-Cassandra"
+      }
+   },
+   "version" : "0.08"
 }
