@@ -6,7 +6,7 @@ use DBD::Cassandra::dr;
 use DBD::Cassandra::db;
 use DBD::Cassandra::st;
 
-our $VERSION= '0.08';
+our $VERSION= '0.09';
 our $drh= undef;
 
 sub driver {
@@ -174,6 +174,8 @@ supported:
 =item * int
 
 =item * text
+
+=item * timestamp
 
 =item * varchar
 
