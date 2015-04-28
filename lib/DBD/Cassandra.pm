@@ -6,7 +6,7 @@ use DBD::Cassandra::dr;
 use DBD::Cassandra::db;
 use DBD::Cassandra::st;
 
-our $VERSION= '0.10';
+our $VERSION= '0.11';
 our $drh= undef;
 
 sub driver {
@@ -50,7 +50,7 @@ DBD::Cassandra - Database driver for Cassandra's CQL3
     }
 
     $dbh->do("INSERT INTO some_table (id, field_one, field_two) VALUES (?, ?, ?)",
-        { Consistency => "quorum" },
+        { Consistency => "quorum", Retries => 1 },
         1, "String value", 38962986
     );
 
