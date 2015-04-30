@@ -3,6 +3,7 @@ use v5.14;
 use warnings;
 
 use IO::Socket::INET;
+use IO::Socket::Timeout;
 use Socket qw/TCP_NODELAY IPPROTO_TCP/;
 use DBD::Cassandra::Protocol qw/:all/;
 
@@ -11,14 +12,20 @@ require Compress::LZ4; # Don't auto-import your subs.
 use Authen::SASL;
 
 sub connect {
-    my ($class, $host, $port, $user, $auth, $compression, $cql_version)= @_;
+    my ($class, $host, $port, $user, $auth, $args)= @_;
     my $socket= IO::Socket::INET->new(
         PeerAddr => $host,
         PeerPort => $port,
         Proto    => 'tcp',
+        ($args->{connect_timeout} ? ( Timeout => $args->{connect_timeout} ) : () ),
     ) or die "Can't connect: $@";
 
     $socket->setsockopt(IPPROTO_TCP, TCP_NODELAY, 1);
+    if ($args->{read_timeout} || $args->{write_timeout}) {
+        IO::Socket::Timeout->enable_timeouts_on($socket);
+        $socket->read_timeout($args->{read_timeout}) if $args->{read_timeout};
+        $socket->write_timeout($args->{write_timeout}) if $args->{write_timeout};
+    }
 
     my $self= bless {
         socket => $socket,
@@ -35,6 +42,7 @@ sub connect {
         my $supported= unpack_string_multimap($body);
 
         # Try to find a somewhat sane compression format to use as a default
+        my $compression= $args->{compression};
         my %compression_supported= map { $_ => 1 } @{$supported->{COMPRESSION}};
         if (!$compression) {
             $compression= 'lz4' if $compression_supported{lz4};
@@ -45,12 +53,15 @@ sub connect {
         if ($compression && !$compression_supported{$compression}) {
             die "Tried to select a compression format the server does not understand: $compression";
         }
+        $self->{compression}= $compression;
 
         # Use the latest CQL version supported unless we specify a version
+        my $cql_version= $args->{cql_version};
         my %cql_supported= map { $_ => 1 } @{$supported->{CQL_VERSION}};
         if (!$cql_version) {
             ($cql_version)= reverse sort keys %cql_supported;
         }
+        $self->{cql_version}= $cql_version;
 
         if (!$cql_version) {
             die 'Did not pick a CQL version. Are we talking to a Cassandra server?';
@@ -60,14 +71,12 @@ sub connect {
         }
     }
 
-    $self->{compression}= $compression;
-
     {
         my ($opcode, $body)= $self->request(
             OPCODE_STARTUP,
             pack_string_map({
-                CQL_VERSION => $cql_version,
-                ($compression ? ( COMPRESSION => $compression ) : ()),
+                CQL_VERSION => $self->{cql_version},
+                ($self->{compression} ? ( COMPRESSION => $self->{compression} ) : ()),
             }),
             NO_RETRY
         );
@@ -147,10 +156,10 @@ sub request {
         $flags |= 1;
     }
 
-    send_frame2($self->{socket}, $flags, 1, $opcode, $body)
-        or die "Unable to send frame with opcode $opcode: $!";
+    $self->send_frame2($flags, 1, $opcode, $body)
+        or die $self->unrecoverable_error("Unable to send frame with opcode $opcode: $!");
 
-    my ($r_flags, $r_stream, $r_opcode, $r_body)= recv_frame2($self->{socket});
+    my ($r_flags, $r_stream, $r_opcode, $r_body)= $self->recv_frame2();
     if (!defined $r_flags) {
         die $self->unrecoverable_error("Server connection went away");
     }
@@ -175,14 +184,17 @@ sub request {
 }
 
 sub send_frame2 {
-    my ($fh, $flags, $streamID, $opcode, $body)= @_;
+    my ($self, $flags, $streamID, $opcode, $body)= @_;
+    my $fh= $self->{socket};
     return print $fh pack("CCCCN/a", 2, $flags, $streamID, $opcode, $body);
 }
 
 sub recv_frame2 {
-    my ($fh)= @_;
+    my ($self)= @_;
+    my $fh= $self->{socket};
 
-    (read($fh, my $header, 8) == 8) or return; #XXX Do we need to handle this case?
+    (read($fh, my $header, 8) == 8) #XXX Do we need to handle the case where we get less than 8 bytes?
+        or die $self->unrecoverable_error("Failed to read reply header from server: $!");
 
     my ($version, $flags, $streamID, $opcode, $bodylen)=
         unpack('CCCCN', $header);
@@ -191,7 +203,8 @@ sub recv_frame2 {
 
     my $body;
     if ($bodylen) {
-        read $fh, $body, $bodylen or return; #XXX What if we read slightly less than that?
+        read $fh, $body, $bodylen #XXX What if we read slightly less than that?
+            or die $self->unrecoverable_error("Failed to read reply from server: $!");
     }
 
     return ($flags, $streamID, $opcode, $body);
