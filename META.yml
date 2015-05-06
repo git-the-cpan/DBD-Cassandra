@@ -26,4 +26,4 @@ requires:
   perl: '5.014'
 resources:
   repository: https://github.com/tvdw/perl-DBD-Cassandra.git
-version: '0.12'
+version: '0.13'
