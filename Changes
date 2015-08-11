@@ -1,5 +1,11 @@
 Revision history for DBD-Cassandra
 
+0.15    2015/08/11
+
+      * Support for pagination through result sets
+      * careful: Timestamps are now in msec accuracy instead of having them as floating points
+      * Enable TCP keepalive on sockets
+
 0.14    2015/05/19
 
       * Resolve an old bug where connecting to CQL3 might cause compilation errors

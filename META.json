@@ -49,5 +49,5 @@
          "web" : "https://github.com/tvdw/perl-DBD-Cassandra"
       }
    },
-   "version" : "0.14"
+   "version" : "0.15"
 }
