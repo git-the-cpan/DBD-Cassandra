@@ -6,11 +6,13 @@ use DBD::Cassandra::dr;
 use DBD::Cassandra::db;
 use DBD::Cassandra::st;
 
-our $VERSION= '0.16';
+our $VERSION= '0.17';
 our $drh= undef;
 
 sub driver {
     return $drh if $drh;
+
+    DBD::Cassandra::st->install_method('x_finish_async');
 
     my ($class, $attr)= @_;
     $drh = DBI::_new_drh($class."::dr", {
@@ -126,6 +128,10 @@ Cassandra manual to see which versions your database supports.
 
 =over
 
+=item async
+
+See "asynchronous queries".
+
 =item consistency
 
 See "consistency levels".
@@ -144,14 +150,40 @@ result set in memory.
 It is important to keep in mind that this mode can cause errors while fetching
 rows, as extra queries may be executed by the driver internally.
 
-=item retries
-
-Allows specifying how many times to retry queries that failed because of a
-timeout. Defaults to C<0> (no retrying).
-
 =back
 
 =back
+
+=head1 ASYNCHRONOUS QUERIES
+
+    my $sth= $dbh->prepare("SELECT id FROM some_table WHERE x=?",
+        { async => 1 });
+    $sth->execute(5);
+
+    some_other_function();
+
+    while (my $row = $sth->fetchrow_arrayref()) {
+        print "$row->[0]\n";
+    }
+
+B<DBD::Cassandra> supports asynchronous queries in an easy to use form.
+When C<async => 1> is passed to C<prepare()>, any subsequent executes
+on the handle are not read back immediately. Instead, these are delayed
+until the result is actually needed.
+
+For inserts and other writes, a convenience method C<x_finish_async> is
+provided, which returns an approximation to what C<execute()> would have
+returned in an non-asynchronous context. This method also raises errors,
+if needed.
+
+    my $sth= $dbh->prepare("INSERT INTO table (a, b) VALUES (?, ?)",
+        { async => 1 });
+    $sth->execute(5, 6);
+
+    some_other_function_that_takes_a_while();
+
+    $sth->x_finish_async;
+
 
 =head1 CONSISTENCY LEVELS
 
@@ -185,14 +217,15 @@ Thread support is untested. Use at your own risk.
 
 =item *
 
-There is currently no support for asynchronous queries, and there are
-no plans to implement it. If you need to run a lot of queries in
-parallel, consider using C<fork> to manage the parallel work.
+If the table structure changes, prepared queries are not invalidated correctly.
+This is a serious issue and will be fixed in a future release.
 
 =item *
 
-If the table structure changes, prepared queries are not invalidated correctly.
-This is a serious issue and will be fixed in a future release.
+When using asynchronous queries, more functions than just execute() may
+throw errors. It is recommended that you enable RaiseError. If this is
+not possible, it should also suffice to call C<$sth->x_finish_async> and
+check its return value before reading any data from the handle.
 
 =item *
 

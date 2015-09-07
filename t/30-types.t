@@ -8,21 +8,21 @@ my $warn= "__warn";
 
 my $type_table= [
     # Type name, test input, test output (undef for error, $input for copying the input, $warn if we expect a perl warning)
-    ['ascii',       'asd',      $input],
-    ['ascii',       '∫∫',       undef],
-    ['bigint',      5,          $input],
-    ['bigint',      'asd',      $warn],
-    ['blob',        'asd',      $input],
-    ['boolean',     1,          $input],
-    ['boolean',     0,          $input],
-    ['boolean',     2,          1],
-    ['boolean',     'asd',      1],
-    ['double',      0.15,       $input],
-    ['float',       0.2,        0.200000002980232], # Yeah.
-    ['int',         5,          $input],
-    ['text',        '∫∫',       $input],
-    ['timestamp',   time()*1000,$input],
-    ['varchar',     '∫∫',       $input],
+    ['ascii',       'asd',  $input],
+    ['ascii',       '∫∫',   undef],
+    ['bigint',      5,      $input],
+    ['bigint',      'asd',  $warn],
+    ['blob',        'asd',  $input],
+    ['boolean',     1,      $input],
+    ['boolean',     0,      $input],
+    ['boolean',     2,      1],
+    ['boolean',     'asd',  1],
+    ['double',      0.15,   $input],
+    ['float',       0.2,    0.200000002980232], # Yeah.
+    ['int',         5,      $input],
+    ['text',        '∫∫',   $input],
+    ['timestamp',   time(), $input],
+    ['varchar',     '∫∫',   $input],
 ];
 
 unless ($ENV{CASSANDRA_HOST}) {
@@ -43,7 +43,7 @@ for my $type (@$type_table) {
         local $SIG{__WARN__}= sub { $did_warn= 1; };
 
         $dbh->do("insert into test_type_$typename (id, test) values (?, ?)", undef, $random_id, $test_val);
-        my $row= $dbh->selectrow_arrayref("select test from test_type_$typename where id=$random_id");
+        my $row= $dbh->selectrow_arrayref("select test from test_type_$typename where id=$random_id", { async => 1 });
         if (!defined $output_val) {
             ok(0);
         } elsif ($output_val eq $warn) {

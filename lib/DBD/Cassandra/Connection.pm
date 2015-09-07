@@ -7,9 +7,11 @@ use IO::Socket::Timeout;
 use Socket qw/TCP_NODELAY IPPROTO_TCP SOL_SOCKET SO_KEEPALIVE/;
 use DBD::Cassandra::Protocol qw/:all/;
 
-require Compress::Snappy; # Don't import compress() / decompress() into our scope please.
-require Compress::LZ4; # Don't auto-import your subs.
-use Authen::SASL;
+use Compress::Snappy qw();
+use Compress::LZ4 qw();
+use Authen::SASL qw();
+
+use constant STREAM_ID_LIMIT => 32768;
 
 sub connect {
     my ($class, $host, $port, $user, $auth, $args)= @_;
@@ -30,6 +32,8 @@ sub connect {
 
     my $self= bless {
         socket => $socket,
+        last_stream_id => -1,
+        pending_streams => {},
         Active => 1,
     }, $class;
 
@@ -37,7 +41,6 @@ sub connect {
         my ($opcode, $body)= $self->request(
             OPCODE_OPTIONS,
             '',
-            NO_RETRY
         );
 
         my $supported= unpack_string_multimap($body);
@@ -79,7 +82,6 @@ sub connect {
                 CQL_VERSION => $self->{cql_version},
                 ($self->{compression} ? ( COMPRESSION => $self->{compression} ) : ()),
             }),
-            NO_RETRY
         );
 
         if ($opcode == OPCODE_AUTHENTICATE) {
@@ -149,7 +151,14 @@ sub decompress {
 }
 
 sub request {
-    my ($self, $opcode, $body, $retry)= @_;
+    my ($self, $opcode, $body)= @_;
+
+    my $stream_id= $self->post_request($opcode, $body);
+    return $self->read_request($stream_id);
+}
+
+sub post_request {
+    my ($self, $opcode, $body)= @_;
 
     my $flags= 0;
     if ($body && length($body) > 512 && $opcode != OPCODE_STARTUP && $self->{compression}) {
@@ -157,17 +166,52 @@ sub request {
         $flags |= 1;
     }
 
-    $self->send_frame2($flags, 1, $opcode, $body)
+    my $stream_id= $self->{last_stream_id} + 1;
+    my $attempts= 0;
+    while (exists $self->{pending_streams}{$stream_id}) {
+        $stream_id= (++$stream_id) % STREAM_ID_LIMIT;
+        die "Cannot find a stream ID to post query with" if ++$attempts >= STREAM_ID_LIMIT;
+    }
+    $self->{last_stream_id}= $stream_id;
+    $self->{pending_streams}{$stream_id}= undef;
+
+    $self->send_frame3($flags, $stream_id, $opcode, $body)
         or die $self->unrecoverable_error("Unable to send frame with opcode $opcode: $!");
 
-    my ($r_flags, $r_stream, $r_opcode, $r_body)= $self->recv_frame2();
-    if (!defined $r_flags) {
-        die $self->unrecoverable_error("Server connection went away");
+    return $stream_id;
+}
+
+sub read_request {
+    my ($self, $stream_id)= @_;
+
+    my ($r_flags, $r_stream, $r_opcode, $r_body);
+
+    if (!exists $self->{pending_streams}{$stream_id}) {
+        die "Internal DBD::Cassandra bug";
+
+    } elsif (my $older_response= $self->{pending_streams}{$stream_id}) {
+        ($r_flags, $r_opcode, $r_body)= @$older_response;
+        $r_stream= $stream_id;
     }
 
-    if ($r_stream != 1) {
-        die $self->unrecoverable_error("Received an unexpected reply from the server");
+    until (defined $r_stream && $r_stream == $stream_id) {
+        ($r_flags, $r_stream, $r_opcode, $r_body)= $self->recv_frame3();
+        if (!defined $r_flags) {
+            die $self->unrecoverable_error("Server connection went away");
+        }
+
+        if ($r_stream != $stream_id) {
+            if (!exists $self->{pending_streams}{$stream_id}) {
+                die $self->unrecoverable_error("Received an unexpected reply from the server");
+            }
+
+            $self->{pending_streams}{$r_stream}= [$r_flags, $r_opcode, $r_body];
+        } else {
+            last;
+        }
     }
+
+    delete $self->{pending_streams}{$stream_id};
 
     if (($r_flags & 1) && $r_body) {
         $self->decompress($r_body);
@@ -175,35 +219,32 @@ sub request {
 
     if ($r_opcode == OPCODE_ERROR) {
         my ($code, $message)= unpack('Nn/a', $r_body);
-        if ($retry && $retry > 0 && $DBD::Cassandra::Protocol::retryable{$code}) {
-            return $self->request($opcode, $body, $retry-1);
-        }
         die "$code: $message";
     }
 
     return ($r_opcode, $r_body);
 }
 
-sub send_frame2 {
+sub send_frame3 {
     my ($self, $flags, $streamID, $opcode, $body)= @_;
     my $fh= $self->{socket};
-    local $\;
-    return print $fh pack("CCCCN/a", 2, $flags, $streamID, $opcode, $body);
+    return $fh->write(pack("CCsCN/a", 3, $flags, $streamID, $opcode, $body));
 }
 
-sub recv_frame2 {
+sub recv_frame3 {
     my ($self)= @_;
     my $fh= $self->{socket};
+    return unless defined $fh;
 
-    my $read_bytes= read($fh, my $header, 8);
-    if (!$read_bytes || $read_bytes != 8) {
+    my $read_bytes= read($fh, my $header, 9);
+    if (!$read_bytes || $read_bytes != 9) {
         die $self->unrecoverable_error("Failed to read reply header from server: $!");
     }
 
     my ($version, $flags, $streamID, $opcode, $bodylen)=
-        unpack('CCCCN', $header);
+        unpack('CCsCN', $header);
 
-    return if ($version & 0x7f) != 2;
+    return if ($version & 0x7f) != 3;
 
     my $body;
     if ($bodylen) {
@@ -238,7 +279,6 @@ sub authenticate {
     my ($opcode, $body)= $self->request(
         OPCODE_AUTH_RESPONSE,
         pack_bytes($client->client_start()),
-        NO_RETRY
     );
 
     while ($opcode == OPCODE_AUTH_CHALLENGE && $client->need_step) {
@@ -246,7 +286,6 @@ sub authenticate {
         ($opcode, $body)= $self->request(
             OPCODE_AUTH_RESPONSE,
             pack_bytes($client->client_step($last_response)),
-            NO_RETRY
         );
     }
 
