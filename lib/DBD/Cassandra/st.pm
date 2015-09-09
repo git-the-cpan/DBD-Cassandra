@@ -46,20 +46,19 @@ sub cass_post {
     # Make sure we don't have an existing open request
     finish_async($sth);
 
-    my $params= $sth->{cass_params_real};
-
     eval {
+        my $params= $sth->{cass_params_real};
         my $prepared_id= $sth->{cass_prepared_id};
 
         my $dbh= $sth->{Database};
         my $conn= $dbh->{cass_connection};
 
-        my $values= pack('n', 0+@$params). ($sth->{cass_row_encoder}->(@$params));
-        my $request_body= pack_shortbytes($prepared_id).pack_parameters({
-            values => $values,
-            consistency => $sth->{cass_consistency},
+        my $request_body= pack_parameters({
+            prepare_id       => $sth->{cass_prepared_id},
+            values           => $sth->{cass_row_encoder}->($params),
+            consistency      => $sth->{cass_consistency},
             result_page_size => $sth->{cass_paging},
-            paging_state => $sth->{cass_paging_state},
+            paging_state     => $sth->{cass_paging_state},
         });
 
         my ($stream_id)= $conn->post_request(
@@ -97,6 +96,7 @@ sub cass_read {
         my $kind= unpack 'N', substr $body, 0, 4, '';
         if ($kind == RESULT_VOID || $kind == RESULT_SET_KEYSPACE || $kind == RESULT_SCHEMA_CHANGE) {
             $data= [];
+            $sth->STORE('Active', 0);
             return 1;
         } elsif ($kind != RESULT_ROWS) {
             die 'Unsupported response from server';
@@ -107,11 +107,7 @@ sub cass_read {
         my $decoder= $sth->{cass_row_decoder};
         my $rows_count= unpack('N', substr $body, 0, 4, '');
 
-        my @rows;
-        for my $row (1..$rows_count) {
-            push @rows, $decoder->($body);
-        }
-        $data= \@rows;
+        $sth->{cass_row_decoder}->($rows_count, $body, ($data = []));
         1;
 
     } or do {

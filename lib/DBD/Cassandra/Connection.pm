@@ -22,7 +22,6 @@ sub connect {
         ($args->{connect_timeout} ? ( Timeout => $args->{connect_timeout} ) : () ),
     ) or die "Can't connect: $@";
 
-    $socket->setsockopt(IPPROTO_TCP, TCP_NODELAY, 1);
     $socket->setsockopt(SOL_SOCKET, SO_KEEPALIVE, 1);
     if ($args->{read_timeout} || $args->{write_timeout}) {
         IO::Socket::Timeout->enable_timeouts_on($socket);
@@ -226,9 +225,11 @@ sub read_request {
 }
 
 sub send_frame3 {
-    my ($self, $flags, $streamID, $opcode, $body)= @_;
+    #my ($self, $flags, $streamID, $opcode, $body)= @_;
+    my $self= shift;
     my $fh= $self->{socket};
-    return $fh->write(pack("CCsCN/a", 3, $flags, $streamID, $opcode, $body));
+    local $\;
+    return print $fh pack("CCsCN/a", 3, @_);
 }
 
 sub recv_frame3 {

@@ -1,6 +1,7 @@
 package DBD::Cassandra::Type;
 use v5.14;
 use warnings;
+use vars qw/@INPUT @OUTPUT/;
 
 require Exporter;
 our @ISA= 'Exporter';
@@ -29,7 +30,7 @@ sub not_impl { ... }
 sub _pack {
     my ($p, $l, $m, $i)= @_;
     $m //= '';
-    return "pack('l> $p', $l, (\$_[$i] $m))";
+    return "pack('l> $p', $l, (\$INPUT[$i] $m))";
 }
 sub _unpack {
     my ($p, $l, $m, $v)= @_;
@@ -39,7 +40,7 @@ sub _unpack {
 
 sub p2c_string {
     my ($i)= @_;
-    return ("pack('l>/a', \$_[$i])", "utf8::is_utf8(\$_[$i]) && utf8::encode(\$_[$i])");
+    return ("pack('l>/a', \$INPUT[$i])", "utf8::is_utf8(\$INPUT[$i]) && utf8::encode(\$INPUT[$i])");
 }
 sub c2p_string { return shift }
 sub c2p_utf8string { my $var= shift; return ($var, "utf8::decode $var") }
@@ -63,11 +64,11 @@ our @EXPORT_OK= qw( build_row_encoder build_row_decoder );
 sub build_row_encoder {
     my ($types)= @_;
 
-    return sub{''} unless @$types;
+    return sub{"\0\0"} unless @$types;
 
     my $count= 0+@$types;
 
-    my $code= "my \$null= pack('l>', -1);\nsub {\n";
+    my $code= "my \$null= pack('l>', -1);\nmy \$length_bits= pack('n', $count);\nsub {\n    local *INPUT= \$_[0];\n";
     my $i= 0;
 
     my $result;
@@ -76,11 +77,11 @@ sub build_row_encoder {
         my $t= $lookup{$type} or die "Unknown type $type";
         my ($c, $prep)= $t->[0]($i);
 
-        $code .= "    $prep if defined \$_[$i];\n" if $prep;
-        $result .= "        (defined \$_[$i] ? ($c) : \$null) .\n";
+        $code .= "    $prep if defined \$INPUT[$i];\n" if $prep;
+        $result .= "        (defined \$INPUT[$i] ? ($c) : \$null) .\n";
         $i++;
     }
-    $code = $code  . "    return\n" . substr($result, 0, -3). "\n    ;\n}";
+    $code = $code  . "    return\n        \$length_bits .\n" . substr($result, 0, -3). "\n    ;\n}";
     return eval($code);
 }
 
@@ -88,24 +89,25 @@ sub build_row_decoder {
     my ($types)= @_;
     my $count= 0+@$types;
 
-    my $code= "sub {\n    my (\@row, \$a, \$b);\n";
+    # $_ = [count, body, dest_rows]
+    my $code= "sub {\n    local *OUTPUT= \$_[2];\n    my (\$byte_count, \$tmp_val);\n    for my \$row_id (1..\$_[0]) {\n        my \@row;\n";
 
     my $i= 0;
     for my $type (@$types) {
         if (ref $type) { $type= $type->{type}; }
         my $t= $lookup{$type} or die "Unknown type $type";
-        my ($c, $prep)= $t->[1]('$b');
+        my ($c, $prep)= $t->[1]('$tmp_val');
 
-        $code .= '    $a= unpack("l>", substr $_[0], 0, 4, "");'."\n";
-        $code .= '    if ($a >= 0) {'."\n";
-        $code .= '        $b= substr $_[0], 0, $a, "";'."\n";
-        $code .= '        '.$prep.';'."\n" if $prep;
-        $code .= '        push @row, ('.$c.');'."\n";
-        $code .= '    } else { push @row, undef; }'."\n";
+        $code .= '        $byte_count= unpack("l>", substr $_[1], 0, 4, "");'."\n";
+        $code .= '        if ($byte_count >= 0) {'."\n";
+        $code .= '            $tmp_val= substr $_[1], 0, $byte_count, "";'."\n";
+        $code .= '            '.$prep.';'."\n" if $prep;
+        $code .= '            push @row, ('.$c.');'."\n";
+        $code .= '        } else { push @row, undef; }'."\n";
         $i++;
     }
 
-    $code .= "    return \\\@row;\n}";
+    $code .= "        push \@OUTPUT, \\\@row;\n    }\n}";
     return eval($code);
 }
 

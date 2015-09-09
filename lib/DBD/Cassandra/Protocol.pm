@@ -179,37 +179,23 @@ sub unpack_metadata {
 sub pack_parameters {
     my ($params)= @_;
 
-    my $consistency= delete $params->{consistency};
-    if ($consistency !~ /\A[0-9]+\z/) {
-        if (defined(my $c= $consistency_lookup{lc $consistency})) {
-            $consistency= $c;
-        } else {
-            die "Unknown consistency argument: $consistency";
-        }
+    my $consistency= $params->{consistency};
+    if (defined(my $c= $consistency_lookup{lc $consistency})) {
+        $consistency= $c;
+    } elsif ($consistency !~ m/\A[0-9]+\z/) {
+        die "Unknown consistency argument: $consistency";
     }
 
-    my $flags= 0;
-    if ($params->{values}) {
-        $flags |= 0x01;
-    }
-    if ($params->{result_page_size}) {
-        $flags |= 0x04;
-    }
-    if ($params->{paging_state}) {
-        $flags |= 0x08;
-    }
+    my ($prepare_id, $values, $result_page_size, $paging_state)=
+        @$params{'prepare_id', 'values', 'result_page_size', 'paging_state'};
 
-    my $body= pack('n C', $consistency, $flags);
+    my $flags= ($values ? 0x01 : 0) | ($result_page_size ? 0x04 : 0) | ($paging_state ? 0x08 : 0);
 
-    if ($flags & 0x01) {
-        $body .= $params->{values};
-    }
-    if ($flags & 0x04) {
-        $body .= pack('N', $params->{result_page_size});
-    }
-    if ($flags & 0x08) {
-        $body .= pack_bytes($params->{paging_state});
-    }
+    my $body= pack('n/a n C', $prepare_id, $consistency, $flags);
+
+    $body .= $values if $values;
+    $body .= pack('N', $result_page_size) if $result_page_size;
+    $body .= pack_bytes($paging_state) if $paging_state;
 
     return $body;
 }
