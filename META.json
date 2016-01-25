@@ -32,7 +32,6 @@
       },
       "runtime" : {
          "requires" : {
-            "Authen::SASL" : "2.16",
             "Compress::LZ4" : "0.20",
             "Compress::Snappy" : "0.23",
             "DBI" : "1.621",
@@ -50,5 +49,5 @@
          "web" : "https://github.com/tvdw/perl-DBD-Cassandra"
       }
    },
-   "version" : "0.23"
+   "version" : "0.24"
 }

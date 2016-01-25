@@ -18,7 +18,6 @@ no_index:
     - t
     - inc
 requires:
-  Authen::SASL: '2.16'
   Compress::LZ4: '0.20'
   Compress::Snappy: '0.23'
   DBI: '1.621'
@@ -27,4 +26,4 @@ requires:
   perl: '5.014'
 resources:
   repository: https://github.com/tvdw/perl-DBD-Cassandra.git
-version: '0.23'
+version: '0.24'
